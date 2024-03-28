@@ -1,0 +1,85 @@
+---
+title: "Homework 4"
+author: "Peter Tran"
+output: pdf_document
+---
+
+```{r}
+set.seed(04232002)
+```
+
+```{r}
+library(INLA)
+library(spdep)
+library(tidyverse)
+library(tmap)
+```
+
+We will be examining the relationship between the number of SIDS cases in 1979 and the nonwhite birth rate during that year. Since this is a county level analysis, we may need to take into account correlation between counties, which we would use the BYM model to do so.
+
+To begin, let's read in the data.
+
+```{r}
+nc <- st_read(system.file("shapes/sids.shp", package="spData" )[1], quiet = T)
+st_crs(nc) <- "+proj=longlat +datum=NAD27"
+row.names(nc) <- as.character(nc$FIPSNO)
+nc$SIDSrate79 <- nc$SID79 / nc$BIR79
+nc$NWBIRrate79 <- nc$NWBIR79 / nc$BIR79
+```
+
+We can plot a choropleth map of the SIDS rate in that year to visually examine it for spatial autocorrelation.
+
+```{r}
+tm_shape(nc) + 
+  tm_borders() +
+  tm_fill("SIDSrate79")
+```
+
+It appears that may be the case. We can calculate Moran's I to tell us more, but for this assignment we will just assume there is spatial autocorrelation and use the BYM model with a relatively uninformative prior.
+
+```{r}
+nb <- poly2nb(nc)
+nb2INLA("nc.adj", nb)
+g <- inla.read.graph(filename = "nc.adj")
+file.remove("nc.adj")
+
+hyperPriors <- list(prec.unstruct = list(prior = "loggamma", param = c(1, 0.01)),
+                    prec.spatial = list(prior = "loggamma", param = c(1, 0.01)))
+
+formula <- SID79 ~ NWBIRrate79 + f(seq(1, nrow(nc)), model = "bym", graph = g,
+                                   hyper = hyperPriors)
+model <- inla(formula, family = "poisson", data = nc, offset = log(nc$BIR79))
+summary(model)
+```
+
+We can see that for each unit increase in the nonwhite birth rate, the number of SIDS cases increases by 0.651 (using our mean point estimate of the posterior distribution of that variable). 0 is not contained in the credible interval (though it is close), meaning that we can be reasonable confident that there really is an effect. I don't know of bayesians think of their point estimates that way.
+
+Let's print out just those mean point estimates for $\hat\beta_0$, $\hat\beta_1$, $\hat\sigma^2_v$, and $\hat\sigma^2_u$.
+
+```{r}
+print(c("beta0hat", model$summary.fixed$mean[1]))
+print(c("beta1hat", model$summary.fixed$mean[2]))
+print(c("sigma2vhat", 1 / model$summary.hyperpar$mean[1]))
+print(c("sigma2uhat", 1 / model$summary.hyperpar$mean[2]))
+```
+
+Let's also plot the posterior distributions for both $\hat\beta_0$ and $\hat\beta_1$.
+
+```{r}
+par(mfrow = c(2, 1))
+plot(model$marginals.fixed$`(Intercept)`, type = "l", lwd = 2,
+     xlab = "beta0hat")
+plot(model$marginals.fixed$NWBIRrate79, type = "l", lwd = 2,
+     xlab = "beta1hat")
+```
+
+And then plot the posterior distributions for $\hat\sigma^2_v$ (iid component) and $\hat\sigma^2_u$ (spatial component).
+
+```{r}
+par(mfrow = c(2, 1))
+plot(model$marginals.hyperpar$`Precision for seq(1, nrow(nc)) (iid component)`,
+     xlim = c(0, 1000), xlab = "Precision for iid component", type = "l") 
+plot(model$marginals.hyperpar$`Precision for seq(1, nrow(nc)) (spatial component)`,
+     xlim = c(0, 1000), xlab = "Precision for spatial component", type = "l") 
+```
+

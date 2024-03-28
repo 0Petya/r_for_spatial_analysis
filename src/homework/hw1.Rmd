@@ -1,0 +1,31 @@
+---
+title: \vspace{-1.5cm} Homework 1
+subtitle: "BST 5600"
+author: "Peter Tran"
+output: pdf_document
+geometry: "left=0.5in, right=0.5in, top=0.5in, bottom=0.5in"
+---
+
+```{r, message=F, echo=F}
+library(GISTools)
+```
+
+```{r, results=F, echo=F}
+data(georgia)
+which(georgia@data$Name == "Sumter")
+```
+
+```{r, fig.width=12, fig.height=8, fig.align="center"}
+georgia.outline <- unionSpatialPolygons(georgia, rep(1, 159))
+
+plot(georgia.outline)
+polygon(georgia@polygons[[129]]@Polygons[[1]]@coords, col = "lightblue")
+for (i in 1:159) polygon(georgia@polygons[[i]]@Polygons[[1]]@coords)
+points(-84.3927, 32.0341, pch = 19, col = "#ff3333aa", cex = 1.25)
+arrows(-84.21061, 32.30461, -84.3927, 32.0341, col = "red", angle = 10, lwd = 2,
+       length = 0.15)
+rect(-84.21061, 32.30461, -82.97638, 32.93636, col = "beige", border = "blue", lwd = 3)
+text(-84.21061 - (-84.21061 - -82.97638) / 2, 32.30461 - (32.30461 - 32.93636) / 2,
+     "Plains, GA\nSumter County", col="blue", cex = 1.1)
+```
+

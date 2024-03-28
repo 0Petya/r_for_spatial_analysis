@@ -1,0 +1,117 @@
+---
+title: "Homework 2"
+subtitle: "BST 5600"
+author: "Peter Tran"
+output: pdf_document
+---
+
+```{r, message = F}
+library(sf)
+library(tidyverse)
+library(tigris)
+library(tmap)
+library(GISTools)
+```
+
+First we'll pull in both the COVID deaths and the population counts for each county. We only care about Missouri, so we'll filter to only Missouri and we'll also remove the statewide unallocated row in each dataset.
+
+```{r}
+deaths <- read_csv("../../data/raw/hw/covid_deaths_usafacts.csv") %>%
+  filter(StateFIPS == 29 & countyFIPS != 0)
+population <- read_csv("../../data/raw/hw/covid_county_population_usafacts.csv") %>%
+  filter(State == "MO" & countyFIPS != 0)
+```
+
+Now we'll read in the shapefiles for Missouri through tigris.
+
+```{r, message = F}
+mo_shapefiles <- counties(29)
+```
+
+Let's join all those together now.
+
+```{r}
+mo <- mo_shapefiles %>% merge(population, by.x = "GEOID", by.y = "countyFIPS") %>%
+  merge(deaths, by.x = "GEOID", by.y = "countyFIPS")
+```
+
+Ok, these deaths are cumulative, so we'll need to subtract the first day from the last day for each year of interest.
+
+```{r}
+mo$`2020_deaths` <- mo$`2020-12-31`
+mo$`2021_deaths` <- mo$`2021-12-31` - mo$`2020-12-31`
+
+mo <- mo %>%
+  dplyr::select(colnames(.) %>% discard(function(x) grepl("2020-", x, fixed = T))) %>%
+  dplyr::select(colnames(.) %>% discard(function(x) grepl("2021-", x, fixed = T))) %>%
+  dplyr::select(colnames(.) %>% discard(function(x) grepl("2022-", x, fixed = T)))
+```
+
+Now we can calculate the rates per 100k.
+
+```{r}
+mo$`2020_rates` <- mo$`2020_deaths` / mo$population * 100000
+mo$`2021_rates` <- mo$`2021_deaths` / mo$population * 100000
+```
+
+Our data is all set up, now we can do the mapping. We'll start by making a choropleth map of the 2020 rates in all of MO.
+
+```{r}
+rate_breaks <- c(0, round(quantileCuts(c(mo$`2020_rates`, mo$`2021_rates`), 7), 1),
+                 max(c(mo$`2020_rates`, mo$`2021_rates`)))
+
+tm_shape(mo) +
+  tm_polygons("2020_rates", title = "Death rates", legend.hist = T,
+              breaks = rate_breaks) +
+  tm_layout(title = "2020 COVID deaths per 100,000 in Missouri",
+            legend.position = c("left", "bottom"),
+            inner.margins = c(0.025, 0.15, 0.1, 0.025))
+```
+
+Let's do the same for 2021 death rates.
+
+```{r}
+tm_shape(mo) +
+  tm_polygons("2021_rates", title = "Death rates", legend.hist = T,
+              breaks = rate_breaks) +
+  tm_layout(title = "2021 COVID deaths per 100,000 in Missouri",
+            legend.position = c("left", "bottom"),
+            inner.margins = c(0.03, 0.25, 0.1, 0.025))
+```
+
+Now let's make two maps that's specifically for the St. Louis EMS region.
+
+```{r}
+stl_ems_counties <- c("071", "099", "113", "163", "183", "189", "219", "510")
+stl_mo <- filter(mo, COUNTYFP %in% stl_ems_counties)
+
+stl_rate_breaks <- c(0, round(quantileCuts(c(stl_mo$`2020_rates`,
+                                             stl_mo$`2021_rates`), 7), 1),
+                     max(c(stl_mo$`2020_rates`, stl_mo$`2021_rates`)))
+
+mo_outline <- st_union(mo)
+
+tm_shape(mo) +
+  tm_fill("white") +
+  tm_borders("grey", lwd = 0.5) +
+  tm_shape(mo_outline) +
+  tm_borders(lwd = 2) +
+  tm_shape(stl_mo) +
+  tm_polygons("2020_rates", title = "Death rates", breaks = rate_breaks) +
+  tm_layout(title = "2020 COVID deaths per 100,000 in St. Louis EMS Region",
+            legend.position = c("left", "bottom"),
+            inner.margins = c(0.025, 0.15, 0.1, 0.025))
+```
+
+```{r}
+tm_shape(mo) +
+  tm_fill("white") +
+  tm_borders("grey", lwd = 0.5) +
+  tm_shape(mo_outline) +
+  tm_borders(lwd = 2) +
+  tm_shape(stl_mo) +
+  tm_polygons("2021_rates", title = "Death rates", breaks = rate_breaks) +
+  tm_layout(title = "2021 COVID deaths per 100,000 in St. Louis EMS Region",
+            legend.position = c("left", "bottom"),
+            inner.margins = c(0.025, 0.15, 0.1, 0.025))
+```
